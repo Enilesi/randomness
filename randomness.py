@@ -15,48 +15,64 @@ from selenium.webdriver.support.ui import Select
 
 import psycopg2
 
-try:
-    connection = psycopg2.connect(
-        dbname="randomness",
-        user=os.getenv("USER"),
-        password=os.getenv("PASSWORD"),
-        host=os.getenv("HOST")
-    )
 
-    cursor = connection.cursor()
+
+
+
+class DataCollector:
+    def __init__(self) -> None:
+        self.init_db()
+        self.init_chrome_options()
+    def init_db(self):
+        self.connection = psycopg2.connect(
+            dbname="randomness",
+            user=os.getenv("USER"),
+            password=os.getenv("PASSWORD"),
+            host=os.getenv("HOST")
+        )
+
+    def init_chrome_options(self):
+        self.chrome_options = Options()
+        self.chrome_options.add_argument("--disable-search-engine-choice-screen")
     
-except Exception as e:
-    print(f"An error occurred: {e}")
+    def start(self):
+        with webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()),options=self.chrome_options) as driver:
+            driver.get("https://randomtextgenerator.com/")
+            while True:
+                self.collect_data(driver)
 
-chrome_options = Options()
-chrome_options.add_argument("--disable-search-engine-choice-screen")
-
-
-with webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()),options=chrome_options) as driver:
-    
-    driver.get("https://randomtextgenerator.com/")
-    for i in range(1000):
+    def collect_data(self,driver):
         language_dropdown = Select(driver.find_element(By.NAME, "language"))
         options = language_dropdown.options
-        if options:
-            random_option = random.choice(options)
-            language = random_option.text
-            language_dropdown.select_by_visible_text(language)
-            print(f"Randomly selected option: {language}")
-            button = driver.find_element(By.NAME,"Go")
-            button.click()
-            print(f"Button clicked {i+1} time(s)")
-            sleep(2)
-            generated_text_box = driver.find_element(By.ID, "randomtext_box")
-            now = datetime.datetime.now()
-            with connection.cursor() as cursor:
+
+        if not options:
+            raise Exception("No options available in the dropdown")
+        
+        random_option = random.choice(options)
+        language = random_option.text
+        language_dropdown.select_by_visible_text(language)
+    
+        button = driver.find_element(By.NAME,"Go")
+        button.click()
+        sleep(2)
+
+        generated_text_box = driver.find_element(By.ID, "randomtext_box")
+        self.insert_into_db(language,generated_text_box.text)
+
+
+    def insert_into_db(self,language,text):
+         with self.connection.cursor() as cursor:
                 cursor.execute(
                     """ insert into generated_text(language,text,date_time)  values (%s,%s,%s)""",
-                    (language,generated_text_box.text,now),
+                    (language,text,datetime.datetime.now()),
                 )
-                connection.commit()
-        else:
-            print("No options available in the dropdown")
+                self.connection.commit()
 
 
 
+def main():
+    colleror=DataCollector()
+    colleror.start()
+
+if __name__ == "__main__":
+    main()
